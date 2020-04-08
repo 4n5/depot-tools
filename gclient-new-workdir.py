@@ -18,11 +18,43 @@ import textwrap
 
 import git_common
 
+if os.name == "nt":
+  import ctypes, sys
+
+  def is_admin():
+    try:
+      return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+      return False
+
+  if not is_admin():
+    # Re-run the program with admin rights
+    # Python 3
+    #ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+    # Python 2
+    ctypes.windll.shell32.ShellExecuteW(None, u"runas", unicode(sys.executable), unicode(" ".join(sys.argv)), None, 1)
+    
+    sys.exit(0)
+
+  def symlink_ms(source, link_name):
+    import ctypes
+    csl = ctypes.windll.kernel32.CreateSymbolicLinkW
+    csl.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
+    csl.restype = ctypes.c_ubyte
+    flags = 1 if os.path.isdir(source) else 0
+    try:
+      if csl(link_name, source.replace('/', '\\'), flags) == 0:
+        raise ctypes.WinError()
+    except:
+      import traceback
+      traceback.print_exc()
+      raise Exception
+  os.symlink = symlink_ms
 
 def parse_options():
-  if sys.platform == 'win32':
-    print('ERROR: This script cannot run on Windows because it uses symlinks.')
-    sys.exit(1)
+  # if sys.platform == 'win32':
+  #   print('ERROR: This script cannot run on Windows because it uses symlinks.')
+  #   sys.exit(1)
 
   parser = argparse.ArgumentParser(description='''\
       Clone an existing gclient directory, taking care of all sub-repositories.
@@ -52,6 +84,8 @@ def parse_options():
 
 
 def support_cow(src, dest):
+  if os.name == "nt":
+    return False
   # 'cp --reflink' always succeeds when 'src' is a symlink or a directory
   assert os.path.isfile(src) and not os.path.islink(src)
   try:
@@ -66,6 +100,8 @@ def support_cow(src, dest):
 
 
 def try_vol_snapshot(src, dest):
+  if os.name == "nt":
+    return False
   try:
     subprocess.check_call(['btrfs', 'subvol', 'snapshot', src, dest],
                             stderr=subprocess.STDOUT)
@@ -110,7 +146,10 @@ def main():
                               os.path.join(root, '.git', 'index'),
                               os.path.join(workdir, '.git', 'index')])
       else:
-        subprocess.check_call(['git', 'checkout', '-f'], cwd=workdir)
+        if os.name == "nt":
+          subprocess.check_call(['git', 'checkout', '-f'], cwd=workdir,shell=True)
+        else:
+          subprocess.check_call(['git', 'checkout', '-f'], cwd=workdir)
 
   if args.reflink:
     print(textwrap.dedent('''\
